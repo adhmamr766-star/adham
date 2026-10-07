@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>VARDIA - لوحة الطلبات</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--dark:#5C2A31;--gold:#B76E79;--bg:#FAF7F5;--border:#E8DDD9}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:#333;padding:20px}
+.wrap{max-width:760px;margin:0 auto}
+h1{color:var(--dark);font-size:1.5rem}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.status{color:#888;font-size:.85rem;margin-bottom:16px}
+.login{max-width:340px;margin:80px auto;text-align:center;background:#fff;padding:30px;border-radius:12px;border:1px solid var(--border)}
+.login input{width:100%;padding:11px;margin:15px 0;border:1px solid var(--border);border-radius:8px;font:1rem 'Tajawal'}
+button{background:var(--dark);color:#fff;border:0;padding:10px 20px;border-radius:25px;cursor:pointer;font:500 .95rem 'Tajawal'}
+.ghost{background:none;color:#999;border:1px solid var(--border);padding:5px 12px}
+.card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.card.new{border-color:var(--gold);box-shadow:0 0 0 3px rgba(183,110,121,.2)}
+.row{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.name{font-weight:700;color:var(--dark);font-size:1.1rem}
+.time{color:#888;font-size:.85rem}
+.items{margin:10px 0;padding:10px;background:#FAF7F5;border-radius:8px;font-size:.95rem}
+.total{font-weight:700;color:var(--gold)}
+a{color:var(--dark)}
+.empty{text-align:center;color:#999;padding:50px}
+#err{color:#c0392b;font-size:.9rem}
+</style>
+</head>
+<body>
+<div id="login" class="login">
+  <h1>VARDIA</h1><p style="color:#888">لوحة الطلبات</p>
+  <input id="pw" type="password" placeholder="كلمة السر" onkeydown="if(event.key==='Enter')enter()">
+  <div id="err"></div>
+  <button onclick="enter()">دخول</button>
+</div>
+<div id="app" class="wrap" style="display:none">
+  <div class="top"><h1>🛍 الطلبات (<span id="n">0</span>)</h1><button class="ghost" onclick="logout()">خروج</button></div>
+  <div class="status" id="st">جارٍ التحميل...</div>
+  <div id="list"></div>
+</div>
+<script>
+// ضع هنا رابط الـ Worker (بدون / في النهاية)
+const API = "https://vardia-orders.adhamamroalreqeb2008.workers.dev";
+let pw = sessionStorage.getItem("pw") || "", seen = null, timer;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function beep(){ try{ const c=new AudioContext(),o=c.createOscillator(),g=c.createGain(); o.connect(g);g.connect(c.destination);o.frequency.value=880;g.gain.value=.15;o.start();o.stop(c.currentTime+.25);}catch(e){} }
+async function call(path, body){
+  const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pw,...body})});
+  if(!r.ok) throw new Error(r.status+" "+await r.text());
+  return r;
+}
+async function enter(){ pw=$("pw").value; await load(true); }
+function logout(){ sessionStorage.removeItem("pw"); clearInterval(timer); location.reload(); }
+async function load(first){
+  try{
+    const orders = await (await call("/orders",{})).json();
+    sessionStorage.setItem("pw",pw);
+    $("login").style.display="none"; $("app").style.display="block";
+    const keys = new Set(orders.map(o=>o.key));
+    const fresh = seen ? orders.filter(o=>!seen.has(o.key)).map(o=>o.key) : [];
+    if(fresh.length) beep();
+    seen = keys;
+    $("n").textContent = orders.length;
+    $("st").textContent = "يتحدث تلقائياً • آخر تحديث " + new Date().toLocaleTimeString("ar-EG");
+    $("list").innerHTML = orders.length ? orders.map(o=>`
+      <div class="card ${fresh.includes(o.key)?'new':''}">
+        <div class="row"><span class="name">${esc(o.name)}</span><span class="time">${new Date(o.time).toLocaleString("ar-EG")}</span></div>
+        <div>📞 <a href="tel:${esc(o.phone)}">${esc(o.phone)}</a></div>
+        <div>📍 ${esc(o.address)}</div>
+        ${o.notes?`<div>📝 ${esc(o.notes)}</div>`:""}
+        <div class="items">${o.items.map(i=>`• ${esc(i.name)} × ${i.qty} = ${i.price*i.qty} ج.م`).join("<br>")}</div>
+        <div class="row"><span class="total">الإجمالي: ${o.total} ج.م</span>
+        <button class="ghost" onclick="del('${esc(o.key)}')">حذف</button></div>
+      </div>`).join("") : '<div class="empty">لا توجد طلبات بعد</div>';
+    if(first || !timer) timer = setInterval(()=>load(false), 5000);
+  }catch(e){
+    if(first||!sessionStorage.getItem("pw")){ $("err").textContent = String(e.message).startsWith("401") ? "كلمة السر غير صحيحة" : "تعذّر الاتصال ["+e.message+"]"; }
+    else $("st").textContent = "انقطع الاتصال، إعادة المحاولة...";
+  }
+}
+async function del(k){ if(confirm("حذف هذا الطلب؟")){ await call("/delete",{key:k}); load(false); } }
+if(pw){ load(true); }
+</script>
+</body>
+</html>
